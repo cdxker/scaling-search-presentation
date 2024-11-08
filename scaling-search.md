@@ -1,29 +1,28 @@
 ---
 marp: true
-footer: '[@skeptrune](htttps://x.com/skeptrune) - nick.k@trieve.ai'
+footer: '[@cdxker](htttps://x.com/cdxker) - denzell.f@trieve.ai'
 transition: fade
 theme: gaia
 ---
 
-<!-- _footer: 'https://github.com/skeptrunedev/scaling-search' -->
+<!-- _footer: 'https://github.com/cdxker/scaling-search' -->
 
 ![bg left](https://cdn.trieve.ai/scaling-search-presentation/sharded-cubism.jpeg)
 
-# Scaling Retrieval With Sharding
+# Scaling Retrieval using Rust
 
 ### 1.2B Chunks at <100ms
 
 ---
 
-![bg right:40%](https://avatars.githubusercontent.com/u/15804464?v=4)
+![bg right:40%](https://avatars.githubusercontent.com/u/32852291?v=4)
 
-## Nicholas Khami
-### Founder/CEO </br>[trieve](https://trieve.ai)
+## Denzell Ford
+### Founder/CTO </br>[trieve](https://trieve.ai)
 
-<i class="fa-brands fa-twitter"></i> Twitter: @skeptrune
-<i class="fa-brands fa-mastodon"></i> Mastodon: @skeptrune
-<i class="fa-brands fa-linkedin"></i> LinkedIn: - [nicholas-khami](https://www.linkedin.com/in/nicholas-khami-5a0a7a135/)
-<i class="fa-brands fa-github"></i> GitHub: [github.com/skeptrunedev](https://github.com/skeptrunedev)
+<i class="fa-brands fa-twitter"></i> Twitter: [@cdxker](https://x.com/cdxker)
+<i class="fa-brands fa-linkedin"></i> LinkedIn: - [denzell-ford](https://www.linkedin.com/in/denzell-ford/)
+<i class="fa-brands fa-github"></i> GitHub: [github.com/cdxker](https://github.com/cdxker)
 
 ---
 
@@ -31,40 +30,73 @@ theme: gaia
 
 # Agenda
 
-- Latency by layer in retrieval
-- Fast Typo Detection
-- Optimizing vector inference
-- Scaling ingest
+- Introduction
+- Ingestion
+	- Finding Bottlenecks
+- Explainable Search Results
+	- Fast Typo Correction
+	- Highlights
 - Sharding your search index
   
 ---
 
-![bg right:40%](https://cdn.trieve.ai/scaling-search-presentation/server-timing-list-small.png)
+# Introduction
 
-# Latency by layer
+*def: AI Search is the use of vector embeddings to search for N similar items to a given query.*
 
-1. Inference vectors for query ~15ms
-2. Typo detection+correction ~1ms
-3. Score docs in search index ~10ms
-4. Re-rank (LTR/cross-encode) ~15ms
-5. First LLM token (TTFT) ~250ms
+AI Search introduces a new set of challenges:
+
+1) Efficient Ingestion.
+2) Low latency retrieval.
+3) Relevant and explainable search results.
+4) Scalability.
+
+---
+
+# Why ingestion is hard
+
+- Vector DB's are **not** the Primary DB. (no explicit relations)
+- Calculating embeddings are expensive.
+- Finding Bottle necks is hard.
+- Iteration cycle is slower.
+
+<!-- _footer: '[github.com/trieve/ingestion-worker](https://github.com/devflowinc/trieve/blob/main/server/src/bin/ingestion-worker.rs)' -->
+
+![bg left:30%](https://cdn.trieve.ai/scaling-search-presentation/katy-fwy-ingest.jpeg)
 
 --- 
 
-# Fast Typo Correction
+# Ingestion Frameworks
 
-<!-- _footer: '[trieve.ai/building-blazingly-fast-typo-correction-in-rust](https://trieve.ai/building-blazingly-fast-typo-correction-in-rust)' -->
+- Single Thread, scale processes. (*horizontal scaling*)
+- Multi Thread, scale threads. (*vertical scaling*)
+- Multi Thread, scale threads **and** processes. (*hybrid scaling*) 
 
-![bg left:40%](https://cdn.trieve.ai/scaling-search-presentation/cubism-crab.jpeg)
+![bg left:30% height:100%](https://cdn.trieve.ai/scaling-search-presentation/ingestion-strats.png)
 
-- Many vector db's don't correct typos
-    - Harder when multi-tenant
-- BK-Tree vs. SymSpell Data Structures
-    - [SymSpell is 100x faster](https://seekstorm.com/blog/symspell-vs-bk-tree/)
+---
 
---- 
+<img width="100%" height="100%" src="https://trieve.b-cdn.net/scaling-search-presentation/trieve-queue-diagram.png" />
 
-# PSA: Vector/Re-ranker Latency
+---
+
+# Finding Ingestion Bottlenecks
+
+- Need to profile queue size changes
+<img width="100%" src="https://cdn.trieve.ai/scaling-search-presentation/hackernews-ingestion.png" />
+- Need to profile individual spans
+
+---
+
+# Bottlenecks
+
+- Inserts into Vector DB
+- Vector Embedding Compute
+- Inserts into Postgres
+
+---
+
+# Vector Embedding Compute Latency
 
 <!-- _footer: '[docs.trieve.ai/vector-inference](https://docs.trieve.ai/vector-inference)' -->
 
@@ -76,22 +108,51 @@ theme: gaia
     - ~8mins on Candle
 - LTR plugins usually <10ms
 
---- 
+---
 
-# Scaling Ingest
+# Latency by layer
 
-<!-- _footer: '[github.com/trieve/ingestion-worker](https://github.com/devflowinc/trieve/blob/main/server/src/bin/ingestion-worker.rs)' -->
-
-![bg left:30%](https://cdn.trieve.ai/scaling-search-presentation/katy-fwy-ingest.jpeg)
-
-- You almost certainly need a queue+worker architecture
-- Using a worker for updates and deletions enables chunking experiments at scale
-- Consider an id system which allows you to upsert easily
+1. Inference vectors for query ~15ms
+2. Typo detection+correction ~1ms
+3. Score docs in search index ~10ms
+4. Re-rank (LTR/cross-encode) ~15ms
+5. First LLM token (TTFT) ~250ms
 
 --- 
 
+# Explainable Search Results
 
-<img width="100%" height="100%" src="https://trieve.b-cdn.net/scaling-search-presentation/trieve-queue-diagram.png" />
+- Semantic Search doesn't care about keywords. (highlights needed)
+- Semantic Search is bad at typos.
+
+Lets look at highlights on hackernews with an example query: ["Tools to Track spans"](https://hn.trieve.ai/?score_threshold=0.5&page_size=30&prefetch_amount=30&rerank_type=none&highlight_delimiters=+%2C-%2C_%2C.%2C%2C&highlight_threshold=0.85&highlight_max_length=50&highlight_max_num=50&highlight_window=0&recency_bias=0&highlight_results=true&use_quote_negated_terms=true&q=Tools+to+Track+spans&storyType=story&matchAnyAuthorNames=&matchNoneAuthorNames=&popularityFilters=%7B%7D&sortby=relevance&dateRange=all&searchType=semantic&page=1&getAISummary=false)
+
+---
+
+### Without Highlights
+
+![bg width:100% left:70%](https://cdn.trieve.ai/scaling-search-presentation/semantic-no-highlights.png)
+
+---
+
+### With Highlights
+
+![bg width:100% left:70%](https://cdn.trieve.ai/scaling-search-presentation/semantic-with-highlights.png)
+
+Semantic Search biases towards larger content
+
+---
+
+# Fast Typo Correction
+
+<!-- _footer: '[trieve.ai/building-blazingly-fast-typo-correction-in-rust](https://trieve.ai/building-blazingly-fast-typo-correction-in-rust)' -->
+
+![bg left:40%](https://cdn.trieve.ai/scaling-search-presentation/cubism-crab.jpeg)
+
+- Many vector db's don't correct typos
+    - Harder when multi-tenant
+- BK-Tree vs. SymSpell Data Structures
+    - [SymSpell is 100x faster](https://seekstorm.com/blog/symspell-vs-bk-tree/)
 
 ---
 
@@ -117,3 +178,10 @@ theme: gaia
 - Replicate shards for more read throughput
 - Different db's map their thread pools to shards differently and you should work with your vendor to address it
 
+---
+
+# Questions?
+
+![bg right:50%](https://cdn.trieve.ai/scaling-search-presentation/cubism-questions.jpeg)
+
+Thank you!
